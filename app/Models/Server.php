@@ -1055,6 +1055,19 @@ $siteAddress {
         return $this->applications()->isNotEmpty() || $this->databases()->isNotEmpty();
     }
 
+    /** Reuse a verified owner's heartbeat, without concealing stale reachability flags. */
+    public function hasHealthySentinelOwner(): bool
+    {
+        $owner = $this->sentinelOwner();
+
+        return $owner !== null
+            && (int) $owner->id !== (int) $this->id
+            && $owner->isSentinelEnabled()
+            && $owner->isSentinelLive()
+            && $owner->settings->is_reachable && $owner->settings->is_usable
+            && $this->settings->is_reachable && $this->settings->is_usable;
+    }
+
     /** Only the canonical record may start, restart or stop the shared container. */
     public function canManageSentinel(): bool
     {
