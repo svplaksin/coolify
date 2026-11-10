@@ -21,7 +21,7 @@ class StartSentinel
 
     public static function lockKey(Server $server): string
     {
-        return 'sentinel-start:'.$server->uuid;
+        return 'sentinel-start:'.($server->sentinelOwner()?->uuid ?? $server->uuid);
     }
 
     /**
@@ -94,7 +94,7 @@ class StartSentinel
      */
     public function handle(Server $server, bool $restart = false, ?string $latestVersion = null, ?string $customImage = null): void
     {
-        if ($server->isSwarm() || $server->isBuildServer()) {
+        if ($server->isSwarm() || $server->isBuildServer() || ! $server->canManageSentinel()) {
             return;
         }
 
@@ -110,6 +110,10 @@ class StartSentinel
     {
         // A start that waited for the lock must use the settings saved in the meantime.
         $server->refresh();
+        // Revalidate after taking the host lock: ownership may have changed while queued.
+        if (! $server->canManageSentinel()) {
+            return;
+        }
         if ($restart) {
             StopSentinel::run($server);
         }
