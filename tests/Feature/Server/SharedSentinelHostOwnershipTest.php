@@ -7,6 +7,10 @@ use App\Jobs\ServerCheckJob;
 use App\Jobs\ServerConnectionCheckJob;
 use App\Jobs\ServerManagerJob;
 use App\Models\InstanceSettings;
+use App\Models\Application;
+use App\Models\Environment;
+use App\Models\Project;
+use App\Models\StandaloneDocker;
 use App\Models\Server;
 use App\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -94,7 +98,7 @@ it('does not remove the owners Sentinel when an alias requests a stop', function
     StopSentinel::run($alias);
 
     Process::assertNothingRan();
-    expect($alias->refresh()->sentinel_updated_at)->toBe($lastHeartbeat);
+    expect($alias->refresh()->sentinel_updated_at)->toEqual($lastHeartbeat);
 });
 
 it('does not inspect or restart Sentinel for an alias even after its restart cooldown expires', function () {
@@ -120,6 +124,28 @@ it('skips redundant connection and container checks on an alias while its owner 
     Queue::assertNotPushed(ServerConnectionCheckJob::class, fn ($job) => $job->server->id === $alias->id);
     Queue::assertNotPushed(ServerCheckJob::class, fn ($job) => $job->server->id === $alias->id);
     Queue::assertNotPushed(CheckAndStartSentinelJob::class, fn ($job) => $job->server->id === $alias->id);
+});
+
+it('keeps independent container checks when an alias owns application resources', function () {
+    $alias = linkSharedSentinelHost($this->alias, $this->owner);
+    $project = Project::factory()->create(['team_id' => $alias->team_id]);
+    $environment = Environment::factory()->create(['project_id' => $project->id]);
+    $destination = StandaloneDocker::factory()->create([
+        'server_id' => $alias->id,
+        'name' => 'alias-app-destination',
+        'network' => 'alias-app-network',
+    ]);
+    Application::factory()->create([
+        'environment_id' => $environment->id,
+        'destination_id' => $destination->id,
+        'destination_type' => $destination->getMorphClass(),
+    ]);
+    $this->owner->forceFill(['sentinel_updated_at' => now()])->save();
+
+    (new ServerManagerJob)->handle();
+
+    Queue::assertNotPushed(ServerConnectionCheckJob::class, fn ($job) => $job->server->id === $alias->id);
+    Queue::assertPushed(ServerCheckJob::class, fn ($job) => $job->server->id === $alias->id);
 });
 
 it('keeps SSH and container fallback checks when the shared owner loses heartbeat', function () {
