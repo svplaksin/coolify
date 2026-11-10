@@ -52,7 +52,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version: '24'
       - name: Install frontend dependencies from lockfile
         run: npm ci
       - name: Build frontend
