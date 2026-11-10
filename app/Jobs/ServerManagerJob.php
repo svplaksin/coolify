@@ -187,7 +187,7 @@ class ServerManagerJob implements ShouldBeEncrypted, ShouldQueue
         // already checks their connection.
         $hasContainersToSync = ! $server->isBuildServer() && ! $server->isSwarmWorker();
 
-        if ($sentinelOutOfSync && $hasContainersToSync) {
+        if ($sentinelOutOfSync && $hasContainersToSync && (! $sharesHealthyOwner || $server->needsIndependentContainerChecks())) {
             // Dispatch ServerCheckJob if Sentinel is out of sync
             if (shouldRunCronNow($this->checkFrequency, $serverTimezone, "server-check:{$server->id}", $this->executionTime)) {
                 if (! $this->shouldSkipDueToBackoff($server)) {
