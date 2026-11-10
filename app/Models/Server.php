@@ -314,6 +314,7 @@ class Server extends BaseModel
         'delete_unused_networks' => 'boolean',
         'force_disabled' => 'boolean',
         'sentinel_waiting_since' => 'datetime',
+        'sentinel_owner_server_id' => 'integer',
     ];
 
     /**
@@ -1003,6 +1004,50 @@ $siteAddress {
     public function scopeWhereProxyType(Builder $query, string $proxyType): Builder
     {
         return $query->where('proxy->type', $proxyType);
+    }
+
+    /**
+     * Resolve the physical Docker host's explicitly configured Sentinel owner.
+     *
+     * The mapping is opt-in: IP and DNS similarity are not safe evidence that two
+     * server records manage the same Docker daemon. Missing owners and cycles
+     * deliberately fail closed instead of permitting container replacement.
+     */
+    public function sentinelOwner(): ?self
+    {
+        $server = $this;
+        $visited = [];
+
+        while (true) {
+            if (! $server->exists || $server->id === null) {
+                return null;
+            }
+
+            $id = (int) $server->id;
+            if (isset($visited[$id])) {
+                return null;
+            }
+            $visited[$id] = true;
+
+            $ownerId = $server->sentinel_owner_server_id;
+            if ($ownerId === null) {
+                return $server->isTransferredAway() ? null : $server;
+            }
+
+            $owner = self::query()->find($ownerId);
+            if ($owner === null || $owner->isTransferredAway()) {
+                return null;
+            }
+            $server = $owner;
+        }
+    }
+
+    /** Only the canonical record may start, restart or stop the shared container. */
+    public function canManageSentinel(): bool
+    {
+        $owner = $this->sentinelOwner();
+
+        return $owner !== null && (int) $owner->id === (int) $this->id;
     }
 
     public function isLocalhost()
