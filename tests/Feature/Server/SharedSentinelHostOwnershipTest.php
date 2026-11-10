@@ -53,9 +53,7 @@ afterEach(function () {
 
 function linkSharedSentinelHost(Server $alias, Server $owner): Server
 {
-    $metadata = $alias->server_metadata ?? [];
-    data_set($metadata, 'sentinel.owner_server_id', $owner->id);
-    $alias->forceFill(['server_metadata' => $metadata])->saveQuietly();
+    $alias->forceFill(['sentinel_owner_server_id' => $owner->id])->saveQuietly();
     Server::flushIdentityMap();
 
     return $alias->refresh();
@@ -144,9 +142,7 @@ it('continues SSH recovery for an alias marked unreachable despite a healthy own
 });
 
 it('fails closed for an invalid owner link without suppressing SSH recovery', function () {
-    $metadata = $this->alias->server_metadata ?? [];
-    data_set($metadata, 'sentinel.owner_server_id', 99999999);
-    $this->alias->forceFill(['server_metadata' => $metadata])->saveQuietly();
+    $this->alias->forceFill(['sentinel_owner_server_id' => 99999999])->saveQuietly();
     $alias = $this->alias->refresh();
     Process::fake();
 
@@ -165,9 +161,7 @@ it('fails closed for an invalid owner link without suppressing SSH recovery', fu
 
 it('fails closed for owner cycles without attempting to start or stop either container', function () {
     $alias = linkSharedSentinelHost($this->alias, $this->owner);
-    $ownerMetadata = $this->owner->server_metadata ?? [];
-    data_set($ownerMetadata, 'sentinel.owner_server_id', $alias->id);
-    $this->owner->forceFill(['server_metadata' => $ownerMetadata])->saveQuietly();
+    $this->owner->forceFill(['sentinel_owner_server_id' => $alias->id])->saveQuietly();
     $owner = $this->owner->refresh();
     Process::fake();
 
