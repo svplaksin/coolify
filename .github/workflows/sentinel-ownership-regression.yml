@@ -1,0 +1,59 @@
+name: Sentinel Ownership Regression Tests
+
+on:
+  push:
+    branches:
+      - fix/sentinel-shared-host-ownership
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  php-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, sqlite3, pdo_sqlite, pcntl, intl, gd, zip, bcmath, curl
+          tools: composer:v2
+          coverage: none
+      - name: Install locked Composer dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+      - name: Lint changed PHP files
+        run: |
+          php -l app/Models/Server.php
+          php -l app/Jobs/ServerManagerJob.php
+          php -l app/Jobs/ServerCheckJob.php
+          php -l app/Jobs/CheckAndStartSentinelJob.php
+          php -l app/Actions/Server/StartSentinel.php
+          php -l app/Actions/Server/StopSentinel.php
+          php -l database/migrations/2026_11_11_000001_add_sentinel_owner_server_id_to_servers_table.php
+          php -l tests/Feature/Server/SharedSentinelHostOwnershipTest.php
+      - name: Backend regression tests
+        run: |
+          php artisan test tests/Feature/Server/SharedSentinelHostOwnershipTest.php
+          php artisan test tests/Feature/Server/StartSentinelLockTest.php
+          php artisan test tests/Feature/Server/CheckAndStartSentinelJobTest.php
+          php artisan test tests/Unit/ServerManagerJobSentinelCheckTest.php
+          php artisan test tests/Feature/Server/ServerCheckReachabilityTest.php
+
+  frontend-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install frontend dependencies from lockfile
+        run: npm ci
+      - name: Build frontend
+        run: npm run build
