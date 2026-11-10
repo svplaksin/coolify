@@ -1042,6 +1042,19 @@ $siteAddress {
         }
     }
 
+    /**
+     * A shared Sentinel only sends status updates for its canonical server.
+     * Aliases with their own deployments or proxy still need container polling.
+     */
+    public function needsIndependentContainerChecks(): bool
+    {
+        if ($this->services()->exists() || $this->proxySet()) {
+            return true;
+        }
+
+        return $this->applications()->isNotEmpty() || $this->databases()->isNotEmpty();
+    }
+
     /** Only the canonical record may start, restart or stop the shared container. */
     public function canManageSentinel(): bool
     {
