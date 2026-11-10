@@ -69,7 +69,7 @@ class ServerCheckJob implements ShouldBeEncrypted, ShouldQueue
                 }
                 GetContainersStatus::run($this->server, $this->containers, $containerReplicates);
 
-                if ($this->server->isSentinelEnabled()) {
+                if ($this->server->canManageSentinel() && $this->server->isSentinelEnabled()) {
                     CheckAndStartSentinelJob::dispatch($this->server);
                 }
 
