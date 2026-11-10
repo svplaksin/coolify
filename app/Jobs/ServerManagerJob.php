@@ -117,6 +117,17 @@ class ServerManagerJob implements ShouldBeEncrypted, ShouldQueue
                         return;
                     }
 
+                    // An explicitly linked logical server shares a real Docker host.
+                    // A healthy owner's heartbeat also proves the alias host is reachable,
+                    // but stale reachability flags still require an SSH recovery check.
+                    $owner = $server->sentinelOwner();
+                    if ($owner !== null && (int) $owner->id !== (int) $server->id
+                        && $owner->isSentinelEnabled() && $owner->isSentinelLive()
+                        && $owner->settings->is_reachable && $owner->settings->is_usable
+                        && $server->settings->is_reachable && $server->settings->is_usable) {
+                        return;
+                    }
+
                     // Skip SSH connection check if Sentinel is healthy — its heartbeat already proves connectivity.
                     // Never skip while the server is marked unreachable or unusable: the heartbeat does not
                     // restore these flags, so deployments would fail with "Server is not functional" forever.
@@ -163,8 +174,13 @@ class ServerManagerJob implements ShouldBeEncrypted, ShouldQueue
         }
 
         // Check if we should run sentinel-based checks
-        $lastSentinelUpdate = $server->sentinel_updated_at;
-        $waitTime = $server->waitBeforeDoingSshCheck();
+        $owner = $server->sentinelOwner();
+        $sharesHealthyOwner = $owner !== null && (int) $owner->id !== (int) $server->id
+            && $owner->isSentinelEnabled() && $owner->isSentinelLive()
+            && $owner->settings->is_reachable && $owner->settings->is_usable
+            && $server->settings->is_reachable && $server->settings->is_usable;
+        $lastSentinelUpdate = $sharesHealthyOwner ? $owner->sentinel_updated_at : $server->sentinel_updated_at;
+        $waitTime = $sharesHealthyOwner ? $owner->waitBeforeDoingSshCheck() : $server->waitBeforeDoingSshCheck();
         $sentinelOutOfSync = Carbon::parse($lastSentinelUpdate)->isBefore($this->executionTime->copy()->subSeconds($waitTime));
 
         // Build servers and Swarm workers have no containers to sync, and ServerConnectionCheckJob
@@ -182,7 +198,8 @@ class ServerManagerJob implements ShouldBeEncrypted, ShouldQueue
 
         // Sentinel versions that report their version on push are updated by SentinelController.
         // Unreachable servers are skipped: the SSH check would only fail. The connection check recovers them.
-        if ($server->isSentinelEnabled()
+        if ($server->canManageSentinel()
+            && $server->isSentinelEnabled()
             && ! Cache::has(Server::sentinelReportedVersionCacheKey($server->id))
             && shouldRunCronNow(self::sentinelVersionCheckCron($server), $serverTimezone, "sentinel-version-check-v2:{$server->id}", $this->executionTime)
             && $server->isFunctional()
