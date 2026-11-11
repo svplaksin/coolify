@@ -108,6 +108,16 @@ it('does not remove the owners Sentinel when an alias requests a stop', function
     expect($alias->refresh()->sentinel_updated_at)->toEqual($lastHeartbeat);
 });
 
+it('does not delete the owners Sentinel when deleting an explicitly linked alias', function () {
+    $alias = linkSharedSentinelHost($this->alias, $this->owner);
+    Process::fake();
+
+    \App\Actions\Server\DeleteServer::run($alias->id);
+
+    Process::assertNothingRan();
+    expect(Server::query()->find($this->owner->id))->not->toBeNull();
+});
+
 it('does not inspect or restart Sentinel for an alias even after its restart cooldown expires', function () {
     $alias = linkSharedSentinelHost($this->alias, $this->owner);
     Cache::forget("sentinel:stall-restart:{$alias->id}");
