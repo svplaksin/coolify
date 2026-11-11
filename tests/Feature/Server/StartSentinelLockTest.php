@@ -76,8 +76,17 @@ it('starts Sentinel with the settings saved after the server was loaded', functi
 
     StartSentinel::run($staleServer, restart: true, latestVersion: '1.0.2');
 
-    expect(collect($scripts)->first(fn (string $script): bool => str_contains($script, 'docker run -d')))
-        ->toContain('PUSH_INTERVAL_SECONDS=33');
+    $script = collect($scripts)->first(fn (string $command): bool => str_contains($command, 'docker run -d'));
+    expect($script)->not->toBeNull();
+
+    // Since v4.7.5, Sentinel settings are passed in a temporary base64-encoded
+    // env file rather than exposed as plaintext arguments to docker run.
+    preg_match_all('/[A-Za-z0-9+\\/]{80,}={0,2}/', $script, $matches);
+    $environment = collect($matches[0])
+        ->map(fn (string $encoded) => base64_decode($encoded, true))
+        ->first(fn ($decoded) => is_string($decoded) && str_contains($decoded, 'PUSH_INTERVAL_SECONDS='));
+
+    expect($environment)->toContain('PUSH_INTERVAL_SECONDS=33');
 });
 
 it('starts Sentinel once when the metrics page toggles metrics', function () {
