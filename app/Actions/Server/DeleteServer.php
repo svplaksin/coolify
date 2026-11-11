@@ -81,7 +81,8 @@ class DeleteServer
 
     private function stopSentinel(Server $server): void
     {
-        if (! $server->settings?->is_sentinel_enabled || ! $server->isFunctional()) {
+        // A linked logical alias never owns the shared Docker container.
+        if (! $server->canManageSentinel() || ! $server->settings?->is_sentinel_enabled || ! $server->isFunctional()) {
             return;
         }
 
