@@ -124,6 +124,24 @@ it('does not delete the owners Sentinel when deleting an explicitly linked alias
     expect(Server::query()->find($this->owner->id))->not->toBeNull();
 });
 
+it('still stops Sentinel when deleting an independent server', function () {
+    $owner = $this->owner;
+    $owner->forceFill([
+        'private_key_id' => \App\Models\PrivateKey::factory()->create(['team_id' => $owner->team_id])->id,
+    ])->saveQuietly();
+    config(['constants.ssh.mux_enabled' => false]);
+    expect($owner->refresh()->isFunctional())->toBeTrue();
+
+    Process::fake();
+    \App\Actions\Server\DeleteServer::run($owner->id);
+
+    Process::assertRan(function ($process) {
+        $script = remoteProcessScript($process);
+
+        return str_contains(is_array($script) ? implode(' ', $script) : $script, 'docker rm -f coolify-sentinel');
+    });
+});
+
 it('does not inspect or restart Sentinel for an alias even after its restart cooldown expires', function () {
     $alias = linkSharedSentinelHost($this->alias, $this->owner);
     Cache::forget("sentinel:stall-restart:{$alias->id}");
