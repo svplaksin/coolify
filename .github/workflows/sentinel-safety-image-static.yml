@@ -1,0 +1,25 @@
+name: Validate Sentinel safety image workflow
+
+on:
+  push:
+    branches:
+      - ci/sentinel-safety-image-bd04cd1
+    paths:
+      - .github/workflows/sentinel-safety-image.yml
+      - .github/workflows/sentinel-safety-image-static.yml
+      - scripts/ci/validate-sentinel-safety-image-workflow.py
+      - docs/operations/sentinel-shared-host-ownership-v4.7.5.md
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate proposed manual image workflow
+        run: python3 scripts/ci/validate-sentinel-safety-image-workflow.py
