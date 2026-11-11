@@ -110,8 +110,14 @@ it('does not remove the owners Sentinel when an alias requests a stop', function
 
 it('does not delete the owners Sentinel when deleting an explicitly linked alias', function () {
     $alias = linkSharedSentinelHost($this->alias, $this->owner);
-    Process::fake();
+    $alias->forceFill([
+        'private_key_id' => \App\Models\PrivateKey::factory()->create(['team_id' => $alias->team_id])->id,
+    ])->saveQuietly();
+    config(['constants.ssh.mux_enabled' => false]);
+    expect($alias->refresh()->isFunctional())->toBeTrue()
+        ->and($alias->settings->is_sentinel_enabled)->toBeTrue();
 
+    Process::fake();
     \App\Actions\Server\DeleteServer::run($alias->id);
 
     Process::assertNothingRan();
