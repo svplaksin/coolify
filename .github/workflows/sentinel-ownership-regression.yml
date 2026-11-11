@@ -33,6 +33,7 @@ jobs:
           php -l app/Jobs/CheckAndStartSentinelJob.php
           php -l app/Actions/Server/StartSentinel.php
           php -l app/Actions/Server/StopSentinel.php
+          php -l app/Actions/Server/DeleteServer.php
           php -l database/migrations/2026_11_11_000001_add_sentinel_owner_server_id_to_servers_table.php
           php -l tests/Feature/Server/SharedSentinelHostOwnershipTest.php
       - name: Backend regression tests
@@ -42,6 +43,9 @@ jobs:
           php artisan test tests/Feature/Server/CheckAndStartSentinelJobTest.php
           php artisan test tests/Unit/ServerManagerJobSentinelCheckTest.php
           php artisan test tests/Feature/Server/ServerCheckReachabilityTest.php
+          php artisan test tests/Feature/Server/ServerSettingSentinelRestartTest.php
+          php artisan test tests/Feature/Livewire/SentinelRestoreDefaultsTest.php
+          php artisan test tests/Feature/ServerNavbarStatusVisibilityTest.php
 
   frontend-build:
     runs-on: ubuntu-24.04
