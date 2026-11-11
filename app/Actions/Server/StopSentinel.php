@@ -11,6 +11,10 @@ class StopSentinel
 
     public function handle(Server $server)
     {
+        if (! $server->canManageSentinel()) {
+            return;
+        }
+
         instant_remote_process(['docker rm -f coolify-sentinel'], $server, false);
         $server->sentinelHeartbeat(isReset: true);
     }

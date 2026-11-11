@@ -353,6 +353,7 @@ class Server extends BaseModel
         'delete_unused_networks' => 'boolean',
         'force_disabled' => 'boolean',
         'sentinel_waiting_since' => 'datetime',
+        'sentinel_owner_server_id' => 'integer',
         'canvas_position' => 'array',
     ];
 
@@ -1393,6 +1394,76 @@ $siteAddress {
     public function scopeWhereProxyType(Builder $query, string $proxyType): Builder
     {
         return $query->where('proxy->type', $proxyType);
+    }
+
+    /**
+     * Resolve the physical Docker host's explicitly configured Sentinel owner.
+     *
+     * The mapping is opt-in: IP and DNS similarity are not safe evidence that two
+     * server records manage the same Docker daemon. Missing owners and cycles
+     * deliberately fail closed instead of permitting container replacement.
+     */
+    public function sentinelOwner(): ?self
+    {
+        $server = $this;
+        $visited = [];
+
+        while (true) {
+            if (! $server->exists || $server->id === null) {
+                return null;
+            }
+
+            $id = (int) $server->id;
+            if (isset($visited[$id])) {
+                return null;
+            }
+            $visited[$id] = true;
+
+            $ownerId = $server->sentinel_owner_server_id;
+            if ($ownerId === null) {
+                return $server->isTransferredAway() ? null : $server;
+            }
+
+            $owner = self::query()->find($ownerId);
+            if ($owner === null || $owner->isTransferredAway()) {
+                return null;
+            }
+            $server = $owner;
+        }
+    }
+
+    /**
+     * A shared Sentinel only sends status updates for its canonical server.
+     * Aliases with their own deployments or proxy still need container polling.
+     */
+    public function needsIndependentContainerChecks(): bool
+    {
+        if ($this->services()->exists() || $this->proxySet()) {
+            return true;
+        }
+
+        return $this->applications()->isNotEmpty() || $this->databases()->isNotEmpty();
+    }
+
+    /** Reuse a verified owner's heartbeat, without concealing stale reachability flags. */
+    public function hasHealthySentinelOwner(): bool
+    {
+        $owner = $this->sentinelOwner();
+
+        return $owner !== null
+            && (int) $owner->id !== (int) $this->id
+            && $owner->isSentinelEnabled()
+            && $owner->isSentinelLive()
+            && $owner->settings->is_reachable && $owner->settings->is_usable
+            && $this->settings->is_reachable && $this->settings->is_usable;
+    }
+
+    /** Only the canonical record may start, restart or stop the shared container. */
+    public function canManageSentinel(): bool
+    {
+        $owner = $this->sentinelOwner();
+
+        return $owner !== null && (int) $owner->id === (int) $this->id;
     }
 
     public function isLocalhost()

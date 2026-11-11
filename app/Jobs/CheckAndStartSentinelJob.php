@@ -43,7 +43,7 @@ class CheckAndStartSentinelJob implements ShouldBeEncrypted, ShouldBeUnique, Sho
 
     public function handle(): void
     {
-        if (! $this->sentinelIsEnabled() || ! $this->server->isFunctional()) {
+        if (! $this->server->canManageSentinel() || ! $this->sentinelIsEnabled() || ! $this->server->isFunctional()) {
             return;
         }
 
@@ -119,7 +119,7 @@ class CheckAndStartSentinelJob implements ShouldBeEncrypted, ShouldBeUnique, Sho
 
     private function startSentinel(string $latestVersion): void
     {
-        if (! $this->sentinelIsEnabled()) {
+        if (! $this->server->canManageSentinel() || ! $this->sentinelIsEnabled()) {
             return;
         }
 

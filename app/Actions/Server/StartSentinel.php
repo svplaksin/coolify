@@ -112,7 +112,7 @@ class StartSentinel
      */
     public function handle(Server $server, bool $restart = false, ?string $latestVersion = null, ?string $customImage = null): void
     {
-        if ($server->isSwarm() || $server->isBuildServer()) {
+        if ($server->isSwarm() || $server->isBuildServer() || ! $server->canManageSentinel()) {
             return;
         }
 
@@ -128,6 +128,10 @@ class StartSentinel
     {
         // A start that waited for the lock must use the settings saved in the meantime.
         $server->refresh();
+        // Revalidate ownership after acquiring the lock.
+        if (! $server->canManageSentinel()) {
+            return;
+        }
         if ($restart) {
             StopSentinel::run($server);
         }
