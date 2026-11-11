@@ -16,6 +16,8 @@ use Lorisleiva\Actions\Decorators\JobDecorator;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
+    // This Livewire test does not need compiled Vite assets.
+    $this->withoutVite();
     DB::table('instance_settings')->insert(['id' => 0]);
     Once::flush();
     $team = Team::factory()->create();
