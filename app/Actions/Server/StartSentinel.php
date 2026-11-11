@@ -21,7 +21,7 @@ class StartSentinel
 
     public static function lockKey(Server $server): string
     {
-        return 'sentinel-start:'.$server->uuid;
+        return 'sentinel-start:'.($server->sentinelOwner()?->uuid ?? $server->uuid);
     }
 
     /**
