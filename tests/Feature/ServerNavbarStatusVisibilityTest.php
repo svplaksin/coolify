@@ -14,6 +14,8 @@ use Livewire\Livewire;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
+    // This Livewire test does not need compiled Vite assets.
+    $this->withoutVite();
     InstanceSettings::forceCreate(['id' => 0]);
 });
 
