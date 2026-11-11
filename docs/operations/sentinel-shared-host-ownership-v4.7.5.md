@@ -62,21 +62,28 @@ The independent `backend-test-critic` returned `PASS` for the final tests-first 
 
 ## Custom image CI handoff (preparation only)
 
-The proposed `.github/workflows/sentinel-safety-image.yml` is intentionally
-manual-only. GitHub can dispatch it only after that workflow exists on the
-fork's default branch. This feature-branch commit therefore prepares and
-validates CI code but does not authorize or start a build or publication.
+The proposed build and publish workflows are intentionally manual-only. GitHub
+can dispatch them only after both workflow files exist on the fork's default
+branch. This feature-branch commit therefore prepares and validates CI code but
+does not authorize or start a build or publication.
 
 After a separate explicit GO, transfer the reviewed CI-only workflow commit to
 the default branch without changing the pinned source revision, version, image
 name, or verification steps. Review the resulting default-branch diff, then
-dispatch the workflow from that exact default-branch commit. Do not add a
-`push` publication trigger as a workaround.
+dispatch only the build workflow from that exact default-branch commit. Do not
+add a `push` publication trigger as a workaround.
 
-The manual workflow must download exactly two OCI artifacts (`image-amd64` and
-`image-arm64`). Before publication it verifies the platform plus
+The build workflow must produce exactly two OCI artifacts (`image-amd64` and
+`image-arm64`) and verify the platform plus
 `org.opencontainers.image.revision` and `org.opencontainers.image.version` for
-each architecture. The final manifest is accepted only when it contains
+each architecture. It has no package-write permission and cannot publish.
+
+After independent review of that successful build, a separate explicit GO is
+required to dispatch the publish workflow with the reviewed build run ID. The
+publish workflow rechecks the source run, downloads exactly two OCI artifacts,
+and repeats all platform and label checks. Its tag includes the build run ID,
+the publication run ID, and run attempt. Publication fails if that exact tag
+already exists. The final manifest is accepted only when it contains
 `linux/amd64` and `linux/arm64` and both images retain the reviewed labels.
 
 Image build, GHCR publication, custom-image installation, database changes,

@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 
-WORKFLOW = Path(".github/workflows/sentinel-safety-image.yml")
+BUILD_WORKFLOW = Path(".github/workflows/sentinel-safety-image.yml")
+PUBLISH_WORKFLOW = Path(
+    ".github/workflows/sentinel-safety-image-publish.yml"
+)
 RUNBOOK = Path(
     "docs/operations/sentinel-shared-host-ownership-v4.7.5.md"
 )
@@ -21,43 +24,66 @@ def forbid(source: str, marker: str) -> None:
 
 
 def main() -> None:
-    workflow = WORKFLOW.read_text(encoding="utf-8")
+    build = BUILD_WORKFLOW.read_text(encoding="utf-8")
+    publish = PUBLISH_WORKFLOW.read_text(encoding="utf-8")
     runbook = RUNBOOK.read_text(encoding="utf-8")
 
-    require(workflow, "  workflow_dispatch:")
-    forbid(workflow, "  push:")
-    require(workflow, "uses: ./.github/workflows/build.yaml")
-    require(workflow, f"ref: {SOURCE_REVISION}")
-    require(workflow, "coolify: 4.7.5")
-    require(workflow, "permissions: {}")
-    require(workflow, "contents: read")
-    require(workflow, "packages: write")
+    require(build, "  workflow_dispatch:")
+    forbid(build, "  push:")
+    require(build, "uses: ./.github/workflows/build.yaml")
+    require(build, f"ref: {SOURCE_REVISION}")
+    require(build, "coolify: 4.7.5")
+    require(build, "permissions: {}")
+    require(build, "contents: read")
+    forbid(build, "packages: write")
+    forbid(build, "docker/login-action")
+    forbid(build, "imagetools create")
 
-    require(workflow, "expected=(image-amd64 image-arm64)")
-    require(workflow, "[[ ${#artifacts[@]} -eq 2 ]]")
-    require(workflow, "for arch in amd64 arm64; do")
-    require(workflow, '.platform.os == "linux"')
-    require(workflow, ".platform.architecture == $arch")
-    require(workflow, 'EXPECTED_VERSION: 4.7.5')
-    require(workflow, f"EXPECTED_REVISION: {SOURCE_REVISION}")
+    require(build, "expected=(image-amd64 image-arm64)")
+    require(build, "[[ ${#artifacts[@]} -eq 2 ]]")
+    require(build, "for arch in amd64 arm64; do")
+    require(build, '.platform.os == "linux"')
+    require(build, ".platform.architecture == $arch")
+    require(build, 'EXPECTED_VERSION: 4.7.5')
+    require(build, f"EXPECTED_REVISION: {SOURCE_REVISION}")
+
+    require(publish, "  workflow_dispatch:")
+    forbid(publish, "  push:")
+    require(publish, "build_run_id:")
+    require(publish, "actions: read")
+    require(publish, "packages: write")
+    require(publish, "actions/runs/$BUILD_RUN_ID")
+    require(publish, 'conclusion == "success"')
+    require(publish, 'event == "workflow_dispatch"')
+    require(publish, "run-id: ${{ inputs.build_run_id }}")
+    require(publish, "expected=(image-amd64 image-arm64)")
+    require(publish, "[[ ${#artifacts[@]} -eq 2 ]]")
+    require(publish, "for arch in amd64 arm64; do")
+    require(publish, 'EXPECTED_VERSION: 4.7.5')
+    require(publish, f"EXPECTED_REVISION: {SOURCE_REVISION}")
     require(
-        workflow,
+        publish,
         "ghcr.io/${{ github.repository_owner }}/coolify-sentinel-safety",
     )
-    require(workflow, f"TAG: 4.7.5-{SOURCE_REVISION}")
-    require(workflow, 'sort == ["linux/amd64", "linux/arm64"]')
-    require(workflow, "org.opencontainers.image.revision")
-    require(workflow, "org.opencontainers.image.version")
+    require(publish, "${{ inputs.build_run_id }}")
+    require(publish, "${{ github.run_id }}")
+    require(publish, "${{ github.run_attempt }}")
+    require(publish, "Refuse to overwrite an existing tag")
+    require(publish, 'sort == ["linux/amd64", "linux/arm64"]')
+    require(publish, "org.opencontainers.image.revision")
+    require(publish, "org.opencontainers.image.version")
 
-    forbid(workflow, ":latest")
-    forbid(workflow, "appleboy/ssh")
-    forbid(workflow, "ssh-action")
-    forbid(workflow, "docker context")
-    forbid(workflow, "api/v1/deploy")
+    for workflow in (build, publish):
+        forbid(workflow, ":latest")
+        forbid(workflow, "appleboy/ssh")
+        forbid(workflow, "ssh-action")
+        forbid(workflow, "docker context")
+        forbid(workflow, "api/v1/deploy")
 
     require(runbook, "default branch")
     require(runbook, "separate explicit GO")
     require(runbook, "exactly two OCI artifacts")
+    require(runbook, "build run ID")
     forbid(runbook, "|| true")
 
 
