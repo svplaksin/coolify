@@ -36,6 +36,7 @@ jobs:
           php -l app/Actions/Server/DeleteServer.php
           php -l database/migrations/2026_11_11_000001_add_sentinel_owner_server_id_to_servers_table.php
           php -l tests/Feature/Server/SharedSentinelHostOwnershipTest.php
+          php -l tests/Feature/Server/StartSentinelLockTest.php
       - name: Backend regression tests
         run: |
           php artisan test tests/Feature/Server/SharedSentinelHostOwnershipTest.php
@@ -61,3 +62,4 @@ jobs:
         run: npm ci
       - name: Build frontend
         run: npm run build
+

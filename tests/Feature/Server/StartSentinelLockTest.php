@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Server\StartSentinel;
+use App\Actions\Server\StopSentinel;
 use App\Events\SentinelRestarted;
 use App\Livewire\Server\Charts;
 use App\Livewire\Server\Sentinel;
@@ -10,6 +11,7 @@ use App\Models\Server;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
@@ -89,6 +91,64 @@ it('starts Sentinel with the settings saved after the server was loaded', functi
     expect($environment)->toContain('PUSH_INTERVAL_SECONDS=33');
 });
 
+it('rechecks ownership after acquiring the Sentinel start lock', function () {
+    $owner = Server::factory()->create([
+        'team_id' => $this->team->id,
+        'private_key_id' => $this->server->private_key_id,
+    ]);
+    $staleAlias = Server::query()->findOrFail($this->server->id);
+    $lockKey = StartSentinel::lockKey($staleAlias);
+    $lock = Mockery::mock(\Illuminate\Contracts\Cache\Lock::class);
+    $lock->shouldReceive('block')
+        ->once()
+        ->with(StartSentinel::LOCK_WAIT_SECONDS, Mockery::type(Closure::class))
+        ->andReturnUsing(function (int $seconds, Closure $callback) use ($owner, $staleAlias) {
+            DB::table('servers')->where('id', $staleAlias->id)->update([
+                'sentinel_owner_server_id' => $owner->id,
+            ]);
+
+            return $callback();
+        });
+    Cache::shouldReceive('lock')
+        ->once()
+        ->with($lockKey, StartSentinel::LOCK_SECONDS)
+        ->andReturn($lock);
+    Process::fake();
+
+    StartSentinel::run($staleAlias, restart: true, latestVersion: '1.0.2');
+
+    Process::assertNothingRan();
+});
+
+it('rechecks ownership after acquiring the Sentinel stop lock', function () {
+    $owner = Server::factory()->create([
+        'team_id' => $this->team->id,
+        'private_key_id' => $this->server->private_key_id,
+    ]);
+    $staleAlias = Server::query()->findOrFail($this->server->id);
+    $lockKey = StartSentinel::lockKey($staleAlias);
+    $lock = Mockery::mock(\Illuminate\Contracts\Cache\Lock::class);
+    $lock->shouldReceive('block')
+        ->once()
+        ->with(StartSentinel::LOCK_WAIT_SECONDS, Mockery::type(Closure::class))
+        ->andReturnUsing(function (int $seconds, Closure $callback) use ($owner, $staleAlias) {
+            DB::table('servers')->where('id', $staleAlias->id)->update([
+                'sentinel_owner_server_id' => $owner->id,
+            ]);
+
+            return $callback();
+        });
+    Cache::shouldReceive('lock')
+        ->once()
+        ->with($lockKey, StartSentinel::LOCK_SECONDS)
+        ->andReturn($lock);
+    Process::fake();
+
+    StopSentinel::run($staleAlias);
+
+    Process::assertNothingRan();
+});
+
 it('starts Sentinel once when the metrics page toggles metrics', function () {
     StartSentinel::shouldRun()->once();
 
@@ -105,3 +165,4 @@ it('restarts Sentinel once when the Sentinel page changes debug logging', functi
 
     expect(queuedSentinelStarts())->toBe(1);
 });
+

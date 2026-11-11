@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Server\DeleteServer;
 use App\Actions\Server\StartSentinel;
 use App\Actions\Server\StopSentinel;
 use App\Jobs\CheckAndStartSentinelJob;
@@ -16,6 +17,7 @@ use App\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
@@ -108,6 +110,42 @@ it('does not remove the owners Sentinel when an alias requests a stop', function
     expect($alias->refresh()->sentinel_updated_at)->toEqual($lastHeartbeat);
 });
 
+it('rechecks ownership before stopping Sentinel through a stale server object', function () {
+    $staleAlias = Server::query()->findOrFail($this->alias->id);
+    $staleAlias->forceFill([
+        'private_key_id' => \App\Models\PrivateKey::factory()->create(['team_id' => $staleAlias->team_id])->id,
+    ])->saveQuietly();
+    config(['constants.ssh.mux_enabled' => false]);
+    DB::table('servers')->where('id', $staleAlias->id)->update([
+        'sentinel_owner_server_id' => $this->owner->id,
+    ]);
+    Process::fake();
+
+    StopSentinel::run($staleAlias);
+
+    Process::assertDidntRun(fn ($process) => str_contains(
+        is_array(remoteProcessScript($process)) ? implode(' ', remoteProcessScript($process)) : remoteProcessScript($process),
+        'docker rm -f coolify-sentinel',
+    ));
+});
+
+it('still stops Sentinel for a fresh independent owner', function () {
+    $owner = $this->owner;
+    $owner->forceFill([
+        'private_key_id' => \App\Models\PrivateKey::factory()->create(['team_id' => $owner->team_id])->id,
+    ])->saveQuietly();
+    config(['constants.ssh.mux_enabled' => false]);
+    Process::fake();
+
+    StopSentinel::run($owner->refresh());
+
+    Process::assertRan(function ($process) {
+        $script = remoteProcessScript($process);
+
+        return str_contains(is_array($script) ? implode(' ', $script) : $script, 'docker rm -f coolify-sentinel');
+    });
+});
+
 it('does not delete the owners Sentinel when deleting an explicitly linked alias', function () {
     $alias = linkSharedSentinelHost($this->alias, $this->owner);
     $alias->forceFill([
@@ -121,6 +159,39 @@ it('does not delete the owners Sentinel when deleting an explicitly linked alias
     \App\Actions\Server\DeleteServer::run($alias->id);
 
     Process::assertNothingRan();
+    expect(Server::query()->find($this->owner->id))->not->toBeNull();
+});
+
+it('rechecks ownership changed after DeleteServer loads the server', function () {
+    $alias = $this->alias;
+    $alias->forceFill([
+        'private_key_id' => \App\Models\PrivateKey::factory()->create(['team_id' => $alias->team_id])->id,
+    ])->saveQuietly();
+    config(['constants.ssh.mux_enabled' => false]);
+    $ownershipChanged = false;
+    $event = 'eloquent.retrieved: '.Server::class;
+    Event::listen($event, function (Server $retrieved) use (&$ownershipChanged, $alias) {
+        if ($ownershipChanged || $retrieved->id !== $alias->id) {
+            return;
+        }
+        $ownershipChanged = true;
+        DB::table('servers')->where('id', $alias->id)->update([
+            'sentinel_owner_server_id' => $this->owner->id,
+        ]);
+    });
+    Process::fake();
+
+    try {
+        DeleteServer::run($alias->id);
+    } finally {
+        Event::forget($event);
+    }
+
+    expect($ownershipChanged)->toBeTrue();
+    Process::assertDidntRun(fn ($process) => str_contains(
+        is_array(remoteProcessScript($process)) ? implode(' ', remoteProcessScript($process)) : remoteProcessScript($process),
+        'docker rm -f coolify-sentinel',
+    ));
     expect(Server::query()->find($this->owner->id))->not->toBeNull();
 });
 
@@ -153,6 +224,28 @@ it('does not inspect or restart Sentinel for an alias even after its restart coo
 
     Process::assertNothingRan();
     expect(Cache::has("sentinel:stall-restart:{$alias->id}"))->toBeFalse();
+});
+
+it('rechecks ownership when a queued Sentinel check holds a stale server object', function () {
+    $staleAlias = Server::query()->findOrFail($this->alias->id);
+    $staleAlias->forceFill([
+        'private_key_id' => \App\Models\PrivateKey::factory()->create(['team_id' => $staleAlias->team_id])->id,
+    ])->saveQuietly();
+    config(['constants.ssh.mux_enabled' => false]);
+    $job = new CheckAndStartSentinelJob($staleAlias);
+    DB::table('servers')->where('id', $staleAlias->id)->update([
+        'sentinel_owner_server_id' => $this->owner->id,
+    ]);
+    Cache::put('coolify:versions', ['sentinel' => ['version' => '1.0.0']], 3600);
+    Process::fake();
+    StartSentinel::shouldNotRun();
+
+    $job->handle();
+
+    Process::assertDidntRun(fn ($process) => str_contains(
+        is_array(remoteProcessScript($process)) ? implode(' ', remoteProcessScript($process)) : remoteProcessScript($process),
+        'docker ps -a',
+    ));
 });
 
 it('skips redundant connection and container checks on an alias while its owner is healthy', function () {
@@ -199,12 +292,15 @@ it('keeps SSH and container fallback checks when the shared owner loses heartbea
     Queue::assertPushed(ServerCheckJob::class, fn ($job) => $job->server->id === $alias->id);
 });
 
-it('continues SSH recovery for an alias marked unreachable despite a healthy owner', function () {
+it('continues the alias SSH fallback when the owner heartbeat is healthy but the alias connection is unavailable', function () {
     $alias = linkSharedSentinelHost($this->alias, $this->owner);
     $alias->settings->forceFill(['is_reachable' => false])->saveQuietly();
+    $this->owner->forceFill(['sentinel_updated_at' => now()])->saveQuietly();
 
     (new ServerManagerJob)->handle();
 
+    expect($this->owner->settings->fresh()->is_reachable)->toBeTrue()
+        ->and($this->owner->isSentinelLive())->toBeTrue();
     Queue::assertPushed(ServerConnectionCheckJob::class, fn ($job) => $job->server->id === $alias->id);
 });
 
@@ -240,3 +336,4 @@ it('fails closed for owner cycles without attempting to start or stop either con
 
     Process::assertNothingRan();
 });
+

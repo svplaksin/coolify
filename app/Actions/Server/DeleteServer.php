@@ -81,13 +81,12 @@ class DeleteServer
 
     private function stopSentinel(Server $server): void
     {
-        // A linked logical alias never owns the shared Docker container.
-        if (! $server->canManageSentinel() || ! $server->settings?->is_sentinel_enabled || ! $server->isFunctional()) {
+        if (! $server->settings?->is_sentinel_enabled || ! $server->isFunctional()) {
             return;
         }
 
         try {
-            instant_remote_process(['docker rm -f coolify-sentinel'], $server, false, timeout: 30, maxAttempts: 1);
+            StopSentinel::run($server, timeout: 30, maxAttempts: 1);
         } catch (\Throwable $e) {
             logger()->warning('Failed to stop Sentinel before deleting the server', [
                 'error' => $e->getMessage(),
@@ -264,3 +263,4 @@ class DeleteServer
         }
     }
 }
+

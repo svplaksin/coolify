@@ -17,8 +17,8 @@ Observed topology (verify again before rollout):
 
 - Add nullable `servers.sentinel_owner_server_id`; `NULL` retains independent ownership for all unconfigured servers.
 - An explicit owner link resolves to one canonical logical record; invalid links, transferred owners, and ownership cycles fail closed.
-- Aliases must not start, restart, stop, or delete the canonical Sentinel. Both `StopSentinel` and the direct cleanup in `DeleteServer` are guarded.
-- The canonical owner continues to manage the shared `coolify-sentinel`; its lock key is stable across aliases.
+- Aliases must not start, restart, stop, or delete the canonical Sentinel. Stop and delete paths refresh ownership after acquiring the shared Sentinel lock and before running `docker rm`.
+- The canonical owner continues to manage the shared `coolify-sentinel`; its lock key is stable across aliases. A restart passes its already-held lock into the stop path, avoiding a nested-lock deadlock.
 - A healthy owner's heartbeat can suppress redundant SSH/container checks for an alias without resources; unreachable aliases and aliases with resources still receive required fallback checks.
 - The mapping is never inferred from matching IP addresses or DNS names.
 - The mapping must be explicitly configured **after** the migration and code deployment. Merely deploying the branch will **not** resolve the production conflict.
@@ -38,7 +38,7 @@ Observed topology (verify again before rollout):
 
 **Phase A — instance code/image:** Deploy the reviewed digest through a proven Coolify custom-image procedure; do not mutate application containers. Verify the application is healthy and the new migration has applied. Validate no unrelated schema changes and no unexpected queue errors. Do not assume the official auto-updater will preserve the custom image.
 
-**Phase B — explicit ownership:** Recheck that ID `0` is `localhost` and ID `1` is `Doctor VPS`, plus UUIDs and the physical Docker Engine identity. In a reviewed transaction, set **only** `servers.id=0` to `sentinel_owner_server_id=1`; leave ID `1` canonical (`NULL`). Verify the resulting mapping and row counts. Never guess the IDs in another installation.
+**Phase B — explicit ownership:** Recheck that ID `0` is `localhost` and ID `1` is `Doctor VPS`, plus UUIDs and the physical Docker Engine identity. Confirm all web and queue workers run the reviewed image; stop the rollout if an old worker remains. Temporarily prevent new Sentinel start/stop/delete work from being submitted, wait for existing Sentinel jobs to finish, and verify no ownership lock is held. In a reviewed transaction, set **only** `servers.id=0` to `sentinel_owner_server_id=1`; leave ID `1` canonical (`NULL`). Verify the resulting mapping and row counts before resuming jobs. Never guess the IDs in another installation. Do not run a manual `docker rm` during the handover.
 
 **Phase C — observation:** Verify `Doctor VPS` continues receiving authenticated Sentinel push, the actual `coolify-sentinel` container remains healthy, no `kill/destroy/create` churn occurs, and independent server SSH/recovery paths remain functional. Check Doctimebot, Virosarain, proxy, Redis, PostgreSQL and application endpoints.
 
@@ -56,6 +56,7 @@ Stop immediately on migration errors, failed Coolify health, proxy/application o
 
 ## Testing evidence
 
-CI runs backend regression groups for ownership, locking, Sentinel job recovery, reachability, settings, restore-default UI, navbar UI, and a frontend production build. The alias deletion regression was demonstrated to fail before the guard and pass after it; independent server deletion remains covered.
+CI runs backend regression groups for ownership, locking, Sentinel job recovery, reachability, settings, restore-default UI, navbar UI, and a frontend production build. The regressions cover stale action/job models, ownership changes after a lock is acquired, alias deletion after model hydration, independent owner stop/delete, and alias SSH fallback.
 
-**Known outstanding:** independent `backend-test-critic` review unavailable in the current environment; no separate staging deployment or database restore rehearsal has been performed for the custom Coolify image.
+The independent `backend-test-critic` returned `PASS` for the final tests-first regression design after two revision rounds. No separate staging deployment or database restore rehearsal has been performed for the custom Coolify image.
+

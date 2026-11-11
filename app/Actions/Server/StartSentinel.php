@@ -133,7 +133,8 @@ class StartSentinel
             return;
         }
         if ($restart) {
-            StopSentinel::run($server);
+            // The caller already owns the shared Sentinel lock.
+            StopSentinel::run($server, lockAcquired: true);
         }
         $version = $latestVersion ?? get_latest_sentinel_version();
         $metricsHistory = data_get($server, 'settings.sentinel_metrics_history_days');
@@ -175,6 +176,12 @@ class StartSentinel
         // On other daemons --userns host has no effect. https://docs.docker.com/engine/security/userns-remap/
         $dockerCommand = "docker run -d$network --env-file $envFile --name coolify-sentinel --restart unless-stopped -v /var/run/docker.sock:/var/run/docker.sock -v $mountDir:/app/db {$trafficMount}--userns host --pid host --health-cmd \"curl --fail http://127.0.0.1:8888/api/health || exit 1\" --health-start-period 120s --health-interval 10s --health-retries 3 --add-host=host.docker.internal:host-gateway --label $dockerLabels $image";
 
+        // Keep the destructive replacement fail-closed if ownership changed while preparing it.
+        $server->refresh();
+        if (! $server->canManageSentinel()) {
+            return;
+        }
+
         $server->sentinelHeartbeat(isReset: true);
         $server->forceFill(['sentinel_waiting_since' => now()])->save();
 
@@ -209,3 +216,4 @@ class StartSentinel
         SentinelRestarted::dispatch($server, $version);
     }
 }
+

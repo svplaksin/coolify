@@ -43,6 +43,8 @@ class CheckAndStartSentinelJob implements ShouldBeEncrypted, ShouldBeUnique, Sho
 
     public function handle(): void
     {
+        // The queued model may predate an ownership change.
+        $this->server->refresh();
         if (! $this->server->canManageSentinel() || ! $this->sentinelIsEnabled() || ! $this->server->isFunctional()) {
             return;
         }
@@ -126,3 +128,4 @@ class CheckAndStartSentinelJob implements ShouldBeEncrypted, ShouldBeUnique, Sho
         StartSentinel::run(server: $this->server, restart: true, latestVersion: $latestVersion);
     }
 }
+
