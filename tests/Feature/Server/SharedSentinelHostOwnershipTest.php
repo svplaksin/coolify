@@ -115,7 +115,7 @@ it('does not delete the owners Sentinel when deleting an explicitly linked alias
     ])->saveQuietly();
     config(['constants.ssh.mux_enabled' => false]);
     expect($alias->refresh()->isFunctional())->toBeTrue()
-        ->and($alias->settings->is_sentinel_enabled)->toBeTrue();
+        ->and((bool) $alias->settings->is_sentinel_enabled)->toBeTrue();
 
     Process::fake();
     \App\Actions\Server\DeleteServer::run($alias->id);
