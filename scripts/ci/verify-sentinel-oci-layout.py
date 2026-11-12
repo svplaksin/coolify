@@ -38,6 +38,7 @@ class Inspector:
         self.version = version
         self.verified_blobs: set[str] = set()
         self.runnable: list[str] = []
+        self.attestation_references: list[str] = []
         self.visited_indexes: set[str] = set()
 
     def blob(self, descriptor: dict, *, json_payload: bool = False):
@@ -124,6 +125,11 @@ class Inspector:
                 require(isinstance(annotations, dict) and
                         annotations.get("vnd.docker.reference.type") == "attestation-manifest",
                         "unrecognized unknown/unknown manifest")
+                reference = annotations.get("vnd.docker.reference.digest")
+                require(isinstance(reference, str) and
+                        DIGEST_PATTERN.fullmatch(reference) is not None,
+                        "attestation missing/invalid image reference")
+                self.attestation_references.append(reference)
                 self.verify_manifest(child, runnable=False)
             else:
                 require(os_name == "linux" and arch == self.arch,
@@ -149,6 +155,8 @@ class Inspector:
         self.visit_index(refs[0], 0)
         require(len(self.runnable) == 1,
                 f"expected exactly one {self.arch} image; found {len(self.runnable)}")
+        require(all(ref == self.runnable[0] for ref in self.attestation_references),
+                "attestation image reference differs from verified manifest")
         return self.runnable[0]
 
 
