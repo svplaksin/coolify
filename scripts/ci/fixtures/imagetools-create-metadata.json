@@ -1,0 +1,8 @@
+{
+  "containerimage.descriptor": {
+    "mediaType": "application/vnd.oci.image.index.v1+json",
+    "digest": "sha256:19ffeab6f8bc9293ac2c3fdf94ebe28396254c993aea0b5a542cfb02e0883fa3",
+    "size": 4654
+  },
+  "image.name": "ghcr.io/example/coolify-sentinel-safety"
+}

@@ -1,0 +1,38 @@
+name: Validate Sentinel safety image workflow
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/actionlint.yaml
+      - .github/workflows/sentinel-safety-image.yml
+      - .github/workflows/sentinel-safety-image-publish.yml
+      - .github/workflows/sentinel-safety-image-static.yml
+      - scripts/ci/validate-sentinel-safety-image-workflow.py
+      - scripts/ci/fixtures/imagetools-create-metadata.json
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate proposed manual image workflow
+        run: python3 scripts/ci/validate-sentinel-safety-image-workflow.py
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: "1.26"
+          cache: false
+      - name: Validate workflow syntax with actionlint
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -color \
+            .github/workflows/sentinel-safety-image.yml \
+            .github/workflows/sentinel-safety-image-publish.yml \
+            .github/workflows/sentinel-safety-image-static.yml

@@ -1,0 +1,72 @@
+name: Build Sentinel safety image
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: sentinel-safety-image-bd04cd1
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build reviewed Coolify image
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build.yaml
+    with:
+      ref: bd04cd1f34cc854ee44be3715f7c0afb3e0a8b7a
+      coolify: 4.7.5
+
+  verify:
+    name: Verify OCI artifacts
+    needs: build
+    permissions:
+      contents: read
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Download both architecture artifacts
+        uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: image-*
+          path: ${{ runner.temp }}/images
+
+      - name: Verify artifact count, platforms, revision, and version
+        env:
+          EXPECTED_IMAGE_SOURCE_SHA: bd04cd1f34cc854ee44be3715f7c0afb3e0a8b7a
+          EXPECTED_VERSION: 4.7.5
+        run: |
+          mapfile -t artifacts < <(
+            find "$RUNNER_TEMP/images" -mindepth 1 -maxdepth 1 -type d \
+              -printf '%f\n' | sort
+          )
+          expected=(image-amd64 image-arm64)
+          [[ ${#artifacts[@]} -eq 2 ]]
+          [[ "${artifacts[*]}" == "${expected[*]}" ]]
+
+          for arch in amd64 arm64; do
+            index="$RUNNER_TEMP/images/image-$arch/index.json"
+            test -f "$index"
+            [[ "$(jq --arg arch "$arch" \
+              '[.manifests[] | select(
+                .platform.os == "linux" and
+                .platform.architecture == $arch
+              )] | length' "$index")" -eq 1 ]]
+            digest="$(jq -er --arg arch "$arch" \
+              '.manifests[] | select(
+                .platform.os == "linux" and
+                .platform.architecture == $arch
+              ) | .digest' "$index")"
+
+            source="oci-layout://${index%/index.json}@$digest"
+            labels="$(
+              docker buildx imagetools inspect "$source" \
+                --format '{{ json .Image.Config.Labels }}'
+            )"
+            [[ "$(jq -r '.["org.opencontainers.image.revision"]' <<< "$labels")" \
+              == "$EXPECTED_IMAGE_SOURCE_SHA" ]]
+            [[ "$(jq -r '.["org.opencontainers.image.version"]' <<< "$labels")" \
+              == "$EXPECTED_VERSION" ]]
+          done
