@@ -69,7 +69,7 @@ jobs:
           done
           labels="$(
             docker buildx imagetools inspect "${sources[0]}" \
-              --format '{{ json (index .Image "linux/amd64").Config.Labels }}' \
+              --format '{{ json .Image.Config.Labels }}' \
               | jq -r 'to_entries[] | "--annotation=index:\(.key)=\(.value)"'
           )"
           mapfile -t annotations <<< "$labels"

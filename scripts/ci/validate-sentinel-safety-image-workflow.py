@@ -155,7 +155,7 @@ def main() -> None:
     require(publish, 'attestation-manifest')
     require(publish, 'length == 4')
     require(publish, '"linux/amd64"')
-    forbid(publish, '.platform.os == "linux"')
+    forbid(publish, 'jq --arg arch "$arch"')
     require(publish, 'EXPECTED_VERSION: 4.7.5')
     require(publish, f"EXPECTED_IMAGE_SOURCE_SHA: {SOURCE_REVISION}")
     assert has_consistent_image_source_sha(publish), (
