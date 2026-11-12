@@ -54,9 +54,27 @@ class LayoutFixture:
         self.image_descriptor = {"mediaType": MANIFEST, **image,
                                  "platform": {"os": "linux", "architecture": self.arch}}
         att_conf = self.blob({})
-        att = self.blob({"schemaVersion": 2, "mediaType": MANIFEST,
-                         "config": {"mediaType": "application/vnd.oci.empty.v1+json", **att_conf},
-                         "layers": [{"mediaType": "application/vnd.in-toto+json", **self.blob(b"attest")}]})
+        statement_type = "https://in-toto.io/Statement/v1"
+
+        def attestation_layer(predicate_type):
+            payload = self.blob({
+                "_type": statement_type, "predicateType": predicate_type,
+                "subject": [{"name": "image", "digest": {"sha256": image["digest"].split(":")[1]}}],
+                "predicate": {},
+            })
+            return {"mediaType": "application/vnd.in-toto+json", **payload,
+                    "annotations": {"in-toto.io/predicate-type": predicate_type}}
+
+        att = self.blob({
+            "schemaVersion": 2, "mediaType": MANIFEST,
+            "artifactType": "application/vnd.docker.attestation.manifest.v1+json",
+            "subject": {"mediaType": MANIFEST, **image},
+            "config": {"mediaType": "application/vnd.oci.empty.v1+json", **att_conf},
+            "layers": [
+                attestation_layer("https://spdx.dev/Document"),
+                attestation_layer("https://slsa.dev/provenance/v1"),
+            ],
+        })
         self.attestation_descriptor = {"mediaType": MANIFEST, **att,
                                        "annotations": {"vnd.docker.reference.type": "attestation-manifest",
                                                        "vnd.docker.reference.digest": image["digest"]},
@@ -88,6 +106,14 @@ class OciLayoutTests(unittest.TestCase):
                                "--arch", arch, "--revision", REVISION, "--version", VERSION],
                               capture_output=True, text=True)
 
+    def verify_index(self):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), "--layout", self.tmp.name,
+             "--arch", "amd64", "--revision", REVISION, "--version", VERSION,
+             "--output", "index"],
+            capture_output=True, text=True,
+        )
+
     def assertRejected(self, result):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("OCI verification failed:", result.stderr)
@@ -96,6 +122,55 @@ class OciLayoutTests(unittest.TestCase):
         result = self.verify()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), self.layout.image_descriptor["digest"])
+
+    def test_publish_source_is_nested_index_not_image_manifest(self):
+        result = self.verify_index()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), self.layout.nested_descriptor["digest"])
+        self.assertNotEqual(result.stdout.strip(), self.layout.image_descriptor["digest"])
+
+    def test_publish_source_rejects_no_attestation(self):
+        self.layout.replace_nested([self.layout.image_descriptor])
+        self.assertRejected(self.verify_index())
+
+    def test_publish_source_rejects_missing_sbom(self):
+        self._change_attestation(lambda manifest: manifest["layers"].pop(0))
+        self.assertRejected(self.verify_index())
+
+    def test_publish_source_rejects_missing_provenance(self):
+        self._change_attestation(lambda manifest: manifest["layers"].pop(1))
+        self.assertRejected(self.verify_index())
+
+    def test_publish_source_rejects_wrong_attestation_subject(self):
+        self._change_attestation(
+            lambda manifest: manifest["subject"].update({"digest": "sha256:" + "0" * 64}))
+        self.assertRejected(self.verify_index())
+
+    def test_publish_source_rejects_wrong_statement_subject(self):
+        descriptor = self.layout.attestation_descriptor
+        path = self.layout.root / "blobs/sha256" / descriptor["digest"].split(":")[1]
+        manifest = json.loads(path.read_bytes())
+        layer = manifest["layers"][0]
+        layer_path = self.layout.root / "blobs/sha256" / layer["digest"].split(":")[1]
+        statement = json.loads(layer_path.read_bytes())
+        statement["subject"][0]["digest"]["sha256"] = "0" * 64
+        new_layer = self.layout.blob(statement)
+        manifest["layers"][0] = {**layer, **new_layer}
+        self._write_attestation(manifest)
+        self.assertRejected(self.verify_index())
+
+    def _change_attestation(self, mutate):
+        descriptor = self.layout.attestation_descriptor
+        path = self.layout.root / "blobs/sha256" / descriptor["digest"].split(":")[1]
+        manifest = json.loads(path.read_bytes())
+        mutate(manifest)
+        self._write_attestation(manifest)
+
+    def _write_attestation(self, manifest):
+        old = self.layout.attestation_descriptor
+        new = self.layout.blob(manifest)
+        self.layout.attestation_descriptor = {**old, **new}
+        self.layout.replace_nested([self.layout.image_descriptor, self.layout.attestation_descriptor])
 
     def test_wrong_architecture_rejected(self):
         self.assertRejected(self.verify("arm64"))
