@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   verify:
@@ -41,3 +42,51 @@ jobs:
             .github/workflows/sentinel-safety-image-publish.yml \
             .github/workflows/sentinel-safety-image-static.yml \
             .github/workflows/sentinel-oci-layout-review.yml
+
+  dry-run:
+    name: Inspect original OCI artifacts with Buildx (read only)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4.4.1
+      - name: Download original OCI artifacts from failed verification run
+        uses: actions/download-artifact@v8.0.2
+        with:
+          run-id: 43183203133
+          pattern: image-*
+          path: ${{ runner.temp }}/images
+          github-token: ${{ github.token }}
+      - name: Verify blobs and dry-run OCI manifest assembly
+        env:
+          EXPECTED_IMAGE_SOURCE_SHA: bd04cd1f34cc854ee44be3715f7c0afb3e0a8b7a
+          EXPECTED_VERSION: 4.7.5
+        run: |
+          set -euo pipefail
+          docker buildx version
+          sources=()
+          for arch in amd64 arm64; do
+            digest="$(python3 scripts/ci/verify-sentinel-oci-layout.py \
+              --layout "$RUNNER_TEMP/images/image-$arch" \
+              --arch "$arch" \
+              --revision "$EXPECTED_IMAGE_SOURCE_SHA" \
+              --version "$EXPECTED_VERSION")"
+            sources+=("oci-layout://$RUNNER_TEMP/images/image-$arch@$digest")
+          done
+          labels="$(
+            docker buildx imagetools inspect "${sources[0]}" \
+              --format '{{ json .Image.Config.Labels }}' \
+              | jq -r 'to_entries[] | "--annotation=index:\(.key)=\(.value)"'
+          )"
+          mapfile -t annotations <<< "$labels"
+          docker buildx imagetools create --dry-run \
+            "${annotations[@]}" \
+            "${sources[@]}" > "$RUNNER_TEMP/sentinel-preview.json"
+          jq -e '
+            [.manifests[].platform | select(.os == "linux") |
+              "\(.os)/\(.architecture)"] | sort
+              == ["linux/amd64", "linux/arm64"]
+          ' "$RUNNER_TEMP/sentinel-preview.json"
+          echo "Read-only OCI manifest dry-run succeeded"
