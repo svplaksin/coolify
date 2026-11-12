@@ -1,0 +1,43 @@
+name: Validate Sentinel OCI layout patch
+
+on:
+  push:
+    branches:
+      - fix/sentinel-oci-layout-verification
+    paths:
+      - .github/workflows/sentinel-safety-image.yml
+      - .github/workflows/sentinel-safety-image-publish.yml
+      - .github/workflows/sentinel-safety-image-static.yml
+      - .github/workflows/sentinel-oci-layout-review.yml
+      - scripts/ci/verify-sentinel-oci-layout.py
+      - scripts/ci/tests/test_sentinel_oci_layout.py
+      - scripts/ci/validate-sentinel-safety-image-workflow.py
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify OCI fix without build/publish
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run OCI regression tests
+        run: python3 -m unittest discover -s scripts/ci/tests -p 'test_*.py' -v
+      - name: Validate security policy
+        run: python3 scripts/ci/validate-sentinel-safety-image-workflow.py
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: "1.26"
+          cache: false
+      - name: Validate workflow syntax
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -color \
+            .github/workflows/sentinel-safety-image.yml \
+            .github/workflows/sentinel-safety-image-publish.yml \
+            .github/workflows/sentinel-safety-image-static.yml \
+            .github/workflows/sentinel-oci-layout-review.yml

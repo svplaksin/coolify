@@ -109,8 +109,11 @@ def main() -> None:
     require(build, "expected=(image-amd64 image-arm64)")
     require(build, "[[ ${#artifacts[@]} -eq 2 ]]")
     require(build, "for arch in amd64 arm64; do")
-    require(build, '.platform.os == "linux"')
-    require(build, ".platform.architecture == $arch")
+    require(build, "scripts/ci/verify-sentinel-oci-layout.py")
+    require(build, '--layout "$RUNNER_TEMP/images/image-$arch"')
+    require(build, '--revision "$EXPECTED_IMAGE_SOURCE_SHA"')
+    require(build, '--version "$EXPECTED_VERSION"')
+    forbid(build, '.platform.os == "linux"')
     require(build, 'EXPECTED_VERSION: 4.7.5')
     require(build, f"EXPECTED_IMAGE_SOURCE_SHA: {SOURCE_REVISION}")
 
@@ -121,6 +124,9 @@ def main() -> None:
     require(publish, '        type: choice\n        options:\n          - "1"')
     require(publish, "actions: read")
     require(publish, "packages: write")
+    require(publish, "contents: read")
+    require(build, "actions/checkout@v7.0.1")
+    require(publish, "actions/checkout@v7.0.1")
     require(publish, "actions/runs/$BUILD_RUN_ID")
     require(
         publish,
@@ -140,6 +146,12 @@ def main() -> None:
     require(publish, "expected=(image-amd64 image-arm64)")
     require(publish, "[[ ${#artifacts[@]} -eq 2 ]]")
     require(publish, "for arch in amd64 arm64; do")
+    require(publish, "scripts/ci/verify-sentinel-oci-layout.py")
+    require(publish, '--layout "$RUNNER_TEMP/images/image-$arch"')
+    require(publish, '--revision "$EXPECTED_IMAGE_SOURCE_SHA"')
+    require(publish, '--version "$EXPECTED_VERSION"')
+    require(publish, 'sources+=("oci-layout://$RUNNER_TEMP/images/image-$arch@$digest")')
+    forbid(publish, '.platform.os == "linux"')
     require(publish, 'EXPECTED_VERSION: 4.7.5')
     require(publish, f"EXPECTED_IMAGE_SOURCE_SHA: {SOURCE_REVISION}")
     assert has_consistent_image_source_sha(publish), (
