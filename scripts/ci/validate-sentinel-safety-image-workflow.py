@@ -83,7 +83,7 @@ def proves_tag_absent(status: int, output: str, image_ref: str) -> bool:
 def has_consistent_image_source_sha(source: str) -> bool:
     return (
         "EXPECTED_REVISION" not in source
-        and source.count("EXPECTED_IMAGE_SOURCE_SHA") == 3
+        and source.count("EXPECTED_IMAGE_SOURCE_SHA") == 4
     )
 
 
