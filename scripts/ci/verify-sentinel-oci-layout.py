@@ -39,6 +39,8 @@ class Inspector:
         self.verified_blobs: set[str] = set()
         self.runnable: list[str] = []
         self.attestation_references: list[str] = []
+        self.attestation_descriptors: list[dict] = []
+        self.nested_index_digest: str | None = None
         self.visited_indexes: set[str] = set()
 
     def blob(self, descriptor: dict, *, json_payload: bool = False):
@@ -77,7 +79,7 @@ class Inspector:
                 "OCI content type/schema mismatch")
         return obj
 
-    def verify_manifest(self, desc: dict, *, runnable: bool) -> None:
+    def verify_manifest(self, desc: dict, *, runnable: bool, require_statements: bool = False) -> None:
         manifest = self.metadata(desc, OCI_MANIFEST)
         config_desc = manifest.get("config")
         require(isinstance(config_desc, dict), "image manifest missing config")
@@ -90,6 +92,40 @@ class Inspector:
         require(isinstance(layers, list), "invalid OCI image layers")
         for layer in layers:
             self.blob(layer)
+        if require_statements:
+            require(manifest.get("artifactType") ==
+                    "application/vnd.docker.attestation.manifest.v1+json",
+                    "attestation has wrong artifact type")
+            subject = manifest.get("subject")
+            require(isinstance(subject, dict) and
+                    subject.get("mediaType") == OCI_MANIFEST and
+                    subject.get("digest") == self.runnable[0],
+                    "attestation subject differs from verified image")
+            required_predicates = {"https://spdx.dev/Document",
+                                   "https://slsa.dev/provenance/v1"}
+            predicates: set[str] = set()
+            for layer in layers:
+                require(layer.get("mediaType") == "application/vnd.in-toto+json",
+                        "attestation statement has wrong media type")
+                statement = self.blob(layer, json_payload=True)
+                require(isinstance(statement, dict) and
+                        statement.get("_type") == "https://in-toto.io/Statement/v1",
+                        "invalid in-toto statement")
+                predicate = statement.get("predicateType")
+                require(isinstance(predicate, str) and
+                        layer.get("annotations", {}).get("in-toto.io/predicate-type") == predicate,
+                        "predicate type mismatch")
+                require(predicate not in predicates,
+                        "duplicate attestation predicate")
+                predicates.add(predicate)
+                subjects = statement.get("subject")
+                require(isinstance(subjects, list) and bool(subjects) and
+                        all(isinstance(item, dict) and
+                            item.get("digest", {}).get("sha256") ==
+                            self.runnable[0].split(":")[1] for item in subjects),
+                        "in-toto statement subject differs from verified image")
+            require(required_predicates.issubset(predicates),
+                    "missing SPDX SBOM or SLSA provenance attestation")
         if runnable:
             require(config.get("os") == "linux" and config.get("architecture") == self.arch,
                     "config platform differs from image descriptor")
@@ -130,13 +166,14 @@ class Inspector:
                         DIGEST_PATTERN.fullmatch(reference) is not None,
                         "attestation missing/invalid image reference")
                 self.attestation_references.append(reference)
+                self.attestation_descriptors.append(child)
                 self.verify_manifest(child, runnable=False)
             else:
                 require(os_name == "linux" and arch == self.arch,
                         f"unexpected runnable platform: {os_name}/{arch}")
                 self.verify_manifest(child, runnable=True)
 
-    def inspect(self) -> str:
+    def inspect(self, *, output: str = "image") -> str:
         require(self.root.is_dir(), "OCI layout directory not found")
         try:
             layout = json.loads((self.root / "oci-layout").read_text())
@@ -152,11 +189,20 @@ class Inspector:
                 "expected exactly one root OCI index descriptor")
         require(refs[0].get("mediaType") == OCI_INDEX,
                 "expected nested OCI index in exported layout")
+        self.nested_index_digest = refs[0]["digest"]
         self.visit_index(refs[0], 0)
         require(len(self.runnable) == 1,
                 f"expected exactly one {self.arch} image; found {len(self.runnable)}")
         require(all(ref == self.runnable[0] for ref in self.attestation_references),
                 "attestation image reference differs from verified manifest")
+        if output == "index":
+            require(len(self.attestation_descriptors) == 1,
+                    "publication requires one provenance/SBOM attestation manifest")
+            self.verify_manifest(self.attestation_descriptors[0],
+                                 runnable=False, require_statements=True)
+            require(self.nested_index_digest is not None,
+                    "missing nested OCI index descriptor")
+            return self.nested_index_digest
         return self.runnable[0]
 
 
@@ -166,9 +212,10 @@ def main() -> int:
     parser.add_argument("--arch", choices=("amd64", "arm64"), required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--output", choices=("image", "index"), default="image")
     args = parser.parse_args()
     try:
-        print(Inspector(args.layout, args.arch, args.revision, args.version).inspect())
+        print(Inspector(args.layout, args.arch, args.revision, args.version).inspect(output=args.output))
         return 0
     except (OciVerificationError, OSError, TypeError, ValueError, KeyError) as exc:
         print(f"OCI verification failed: {exc}", file=sys.stderr)

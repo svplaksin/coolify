@@ -151,7 +151,11 @@ def main() -> None:
     require(publish, '--revision "$EXPECTED_IMAGE_SOURCE_SHA"')
     require(publish, '--version "$EXPECTED_VERSION"')
     require(publish, 'sources+=("oci-layout://$RUNNER_TEMP/images/image-$arch@$digest")')
-    forbid(publish, '.platform.os == "linux"')
+    require(publish, '--output index')
+    require(publish, 'attestation-manifest')
+    require(publish, '(.manifests | length) == 4')
+    require(publish, '["amd64", "arm64"]')
+    forbid(publish, 'jq --arg arch "$arch"')
     require(publish, 'EXPECTED_VERSION: 4.7.5')
     require(publish, f"EXPECTED_IMAGE_SOURCE_SHA: {SOURCE_REVISION}")
     assert has_consistent_image_source_sha(publish), (
@@ -184,7 +188,7 @@ def main() -> None:
     require(publish, "--format '{{json .Manifest}}'")
     require(publish, "registry_digest=\"$(jq -er '.digest'")
     require(publish, '[[ "$registry_digest" != "$digest" ]]')
-    require(publish, 'sort == ["linux/amd64", "linux/arm64"]')
+    require(publish, 'sort) == ["amd64", "arm64"]')
     require(publish, "org.opencontainers.image.revision")
     require(publish, "org.opencontainers.image.version")
 
