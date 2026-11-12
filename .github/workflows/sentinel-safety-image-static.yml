@@ -10,6 +10,8 @@ on:
       - .github/workflows/sentinel-safety-image-publish.yml
       - .github/workflows/sentinel-safety-image-static.yml
       - scripts/ci/validate-sentinel-safety-image-workflow.py
+      - scripts/ci/verify-sentinel-oci-layout.py
+      - scripts/ci/tests/test_sentinel_oci_layout.py
       - scripts/ci/fixtures/imagetools-create-metadata.json
 
 permissions:
@@ -23,6 +25,8 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - name: Run OCI layout regression tests
+        run: python3 -m unittest discover -s scripts/ci/tests -p 'test_*.py' -v
       - name: Validate proposed manual image workflow
         run: python3 scripts/ci/validate-sentinel-safety-image-workflow.py
       - uses: actions/setup-go@v7.0.0
