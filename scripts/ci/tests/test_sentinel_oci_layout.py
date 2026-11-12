@@ -117,6 +117,27 @@ class OciLayoutTests(unittest.TestCase):
         self.layout.replace_nested([self.layout.image_descriptor, bad])
         self.assertRejected(self.verify())
 
+    def test_attestation_reference_must_target_verified_image(self):
+        attestation = {
+            **self.layout.attestation_descriptor,
+            "annotations": {
+                **self.layout.attestation_descriptor["annotations"],
+                "vnd.docker.reference.digest": "sha256:" + "0" * 64,
+            },
+        }
+        self.layout.replace_nested([self.layout.image_descriptor, attestation])
+        self.assertRejected(self.verify())
+
+    def test_attestation_reference_cannot_be_missing(self):
+        attestation = {
+            **self.layout.attestation_descriptor,
+            "annotations": {
+                "vnd.docker.reference.type": "attestation-manifest",
+            },
+        }
+        self.layout.replace_nested([self.layout.image_descriptor, attestation])
+        self.assertRejected(self.verify())
+
     def test_missing_blob_rejected(self):
         (self.layout.root / "blobs/sha256" /
          self.layout.image_descriptor["digest"].split(":")[1]).unlink()
