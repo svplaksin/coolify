@@ -142,13 +142,14 @@ jobs:
               --layout "$RUNNER_TEMP/images/image-$arch" \
               --arch "$arch" \
               --revision "$EXPECTED_IMAGE_SOURCE_SHA" \
-              --version "$EXPECTED_VERSION")"
+              --version "$EXPECTED_VERSION" \
+              --output index)"
             sources+=("oci-layout://$RUNNER_TEMP/images/image-$arch@$digest")
           done
 
           labels="$(
             docker buildx imagetools inspect "${sources[0]}" \
-              --format '{{ json .Image.Config.Labels }}' \
+              --format '{{ json (index .Image "linux/amd64").Config.Labels }}' \
               | jq -r 'to_entries[] | "--annotation=index:\(.key)=\(.value)"'
           )"
           mapfile -t annotations <<< "$labels"
@@ -180,10 +181,23 @@ jobs:
         run: |
           raw="$(docker buildx imagetools inspect "$IMAGE@$DIGEST" --raw)"
           jq -e '
-            [.manifests[].platform
-              | select(.os == "linux")
-              | "\(.os)/\(.architecture)"]
-            | sort == ["linux/amd64", "linux/arm64"]
+            ([.manifests[] | select(.platform.os == "linux")] |
+              length == 2 and
+              ([.[].platform.architecture] | sort == ["amd64", "arm64"]))
+            and
+            ([.manifests[] |
+              select(.platform.os == "unknown" and
+                     .platform.architecture == "unknown" and
+                     .annotations["vnd.docker.reference.type"] == "attestation-manifest")
+            ] | length == 2)
+            and
+            ([.manifests[] |
+              select(.platform.os == "unknown" and
+                     .platform.architecture == "unknown") |
+              .annotations["vnd.docker.reference.digest"]
+            ] | sort ==
+              ([.manifests[] | select(.platform.os == "linux") | .digest] | sort))
+            and ([.manifests] | length == 4)
           ' <<< "$raw"
 
           for platform in linux/amd64 linux/arm64; do

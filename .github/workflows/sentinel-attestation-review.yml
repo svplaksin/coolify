@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   static-review:
@@ -32,3 +33,63 @@ jobs:
             .github/workflows/sentinel-safety-image-publish.yml \
             .github/workflows/sentinel-safety-image-static.yml \
             .github/workflows/sentinel-attestation-review.yml
+
+  dry-run:
+    name: Preserve SPDX and provenance during multiarch dry-run
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4.4.1
+      - name: Download reviewed build OCI artifacts
+        uses: actions/download-artifact@v8.0.2
+        with:
+          run-id: 43203661812
+          pattern: image-*
+          path: ${{ runner.temp }}/images
+          github-token: ${{ github.token }}
+      - name: Verify attestations and assemble preview without registry
+        env:
+          EXPECTED_IMAGE_SOURCE_SHA: bd04cd1f34cc854ee44be3715f7c0afb3e0a8b7a
+          EXPECTED_VERSION: 4.7.5
+        run: |
+          set -euo pipefail
+          docker buildx version
+          sources=()
+          for arch in amd64 arm64; do
+            digest="$(python3 scripts/ci/verify-sentinel-oci-layout.py \
+              --layout "$RUNNER_TEMP/images/image-$arch" \
+              --arch "$arch" \
+              --revision "$EXPECTED_IMAGE_SOURCE_SHA" \
+              --version "$EXPECTED_VERSION" \
+              --output index)"
+            sources+=("oci-layout://$RUNNER_TEMP/images/image-$arch@$digest")
+          done
+          labels="$(
+            docker buildx imagetools inspect "${sources[0]}" \
+              --format '{{ json (index .Image "linux/amd64").Config.Labels }}' \
+              | jq -r 'to_entries[] | "--annotation=index:\(.key)=\(.value)"'
+          )"
+          mapfile -t annotations <<< "$labels"
+          docker buildx imagetools create --dry-run \
+            "${annotations[@]}" \
+            "${sources[@]}" > "$RUNNER_TEMP/preview.json"
+          jq -e '
+            ([.manifests[] | select(.platform.os == "linux")] |
+              length == 2 and
+              ([.[].platform.architecture] | sort == ["amd64", "arm64"]))
+            and
+            ([.manifests[] | select(.platform.os == "unknown" and
+                .platform.architecture == "unknown" and
+                .annotations["vnd.docker.reference.type"] == "attestation-manifest")
+            ] | length == 2)
+            and
+            ([.manifests[] | select(.platform.os == "unknown" and
+                .platform.architecture == "unknown") |
+                .annotations["vnd.docker.reference.digest"]] | sort ==
+              ([.manifests[] | select(.platform.os == "linux") | .digest] | sort))
+            and ([.manifests] | length == 4)
+          ' "$RUNNER_TEMP/preview.json"
+          echo "SPDX and SLSA attestation manifests preserved in read-only preview"
