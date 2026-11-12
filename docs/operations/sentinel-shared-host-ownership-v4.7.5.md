@@ -80,10 +80,12 @@ each architecture. It has no package-write permission and cannot publish.
 
 After independent review of that successful build, a separate explicit GO is
 required to dispatch the publish workflow with the reviewed build run ID and
-build run attempt. The publish workflow requires the build to come from `main`
-at the same reviewed workflow-code SHA as the publish workflow. This
-workflow-code SHA is distinct from the pinned image source SHA `bd04cd1...`,
-which is verified from the OCI revision label.
+build run attempt. Only attempt 1 is accepted. A re-run of a failed or cancelled
+build is rejected even if that later attempt succeeds; use a new manual build run
+and review its new run ID instead. The publish workflow requires the build
+to come from `main` at the same reviewed workflow-code SHA as the publish
+workflow. This workflow-code SHA is distinct from the pinned image source SHA
+`bd04cd1...`, which is verified from the OCI revision label.
 
 The publish workflow downloads exactly two OCI artifacts and repeats all
 platform and label checks. Its tag includes the build run ID, publication run

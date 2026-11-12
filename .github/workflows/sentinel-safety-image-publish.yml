@@ -8,9 +8,11 @@ on:
         required: true
         type: string
       build_run_attempt:
-        description: Exact reviewed attempt number of the build workflow run
+        description: Reviewed build attempt; only first attempts are accepted
         required: true
-        type: string
+        type: choice
+        options:
+          - "1"
 
 permissions: {}
 
@@ -40,22 +42,21 @@ jobs:
       - name: Verify source build run
         run: |
           [[ "$BUILD_RUN_ID" =~ ^[1-9][0-9]*$ ]]
-          [[ "$BUILD_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$BUILD_RUN_ATTEMPT" == "1" ]]
           run_json="$(
             gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID"
           )"
           attempt_json="$(
-            gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/attempts/$BUILD_RUN_ATTEMPT"
+            gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/attempts/1"
           )"
           for payload in "$run_json" "$attempt_json"; do
             jq -e \
               --arg repository "$GITHUB_REPOSITORY" \
               --arg run_id "$BUILD_RUN_ID" \
-              --arg attempt "$BUILD_RUN_ATTEMPT" \
               --arg head_branch "$EXPECTED_BUILD_HEAD_BRANCH" \
               --arg head_sha "$EXPECTED_BUILD_HEAD_SHA" '
                 (.id | tostring) == $run_id and
-                .run_attempt == ($attempt | tonumber) and
+                .run_attempt == 1 and
                 .status == "completed" and
                 .conclusion == "success" and
                 .event == "workflow_dispatch" and
@@ -202,7 +203,7 @@ jobs:
                 --format "{{ json (index .Image \"$platform\").Config.Labels }}"
             )"
             [[ "$(jq -r '.["org.opencontainers.image.revision"]' <<< "$labels")" \
-              == "$EXPECTED_REVISION" ]]
+              == "$EXPECTED_IMAGE_SOURCE_SHA" ]]
             [[ "$(jq -r '.["org.opencontainers.image.version"]' <<< "$labels")" \
               == "$EXPECTED_VERSION" ]]
           done
