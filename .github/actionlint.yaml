@@ -1,0 +1,5 @@
+# GitHub-hosted runner already used by the upstream Coolify build workflow.
+# actionlint v1.7.12 predates this label in its embedded runner catalog.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

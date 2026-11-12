@@ -5,6 +5,7 @@ on:
     branches:
       - ci/sentinel-safety-image-bd04cd1
     paths:
+      - .github/actionlint.yaml
       - .github/workflows/sentinel-safety-image.yml
       - .github/workflows/sentinel-safety-image-publish.yml
       - .github/workflows/sentinel-safety-image-static.yml

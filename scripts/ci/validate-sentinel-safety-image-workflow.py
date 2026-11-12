@@ -7,6 +7,7 @@ BUILD_WORKFLOW = Path(".github/workflows/sentinel-safety-image.yml")
 PUBLISH_WORKFLOW = Path(
     ".github/workflows/sentinel-safety-image-publish.yml"
 )
+ACTIONLINT_CONFIG = Path(".github/actionlint.yaml")
 RUNBOOK = Path(
     "docs/operations/sentinel-shared-host-ownership-v4.7.5.md"
 )
@@ -26,6 +27,7 @@ def forbid(source: str, marker: str) -> None:
 def main() -> None:
     build = BUILD_WORKFLOW.read_text(encoding="utf-8")
     publish = PUBLISH_WORKFLOW.read_text(encoding="utf-8")
+    actionlint_config = ACTIONLINT_CONFIG.read_text(encoding="utf-8")
     runbook = RUNBOOK.read_text(encoding="utf-8")
 
     require(build, "  workflow_dispatch:")
@@ -79,6 +81,9 @@ def main() -> None:
         forbid(workflow, "ssh-action")
         forbid(workflow, "docker context")
         forbid(workflow, "api/v1/deploy")
+
+    require(actionlint_config, "self-hosted-runner:")
+    require(actionlint_config, "- ubuntu-26.04")
 
     require(runbook, "default branch")
     require(runbook, "separate explicit GO")
