@@ -35,7 +35,7 @@ jobs:
 
       - name: Verify artifact count, platforms, revision, and version
         env:
-          EXPECTED_REVISION: bd04cd1f34cc854ee44be3715f7c0afb3e0a8b7a
+          EXPECTED_IMAGE_SOURCE_SHA: bd04cd1f34cc854ee44be3715f7c0afb3e0a8b7a
           EXPECTED_VERSION: 4.7.5
         run: |
           mapfile -t artifacts < <(
@@ -66,7 +66,7 @@ jobs:
                 --format '{{ json .Image.Config.Labels }}'
             )"
             [[ "$(jq -r '.["org.opencontainers.image.revision"]' <<< "$labels")" \
-              == "$EXPECTED_REVISION" ]]
+              == "$EXPECTED_IMAGE_SOURCE_SHA" ]]
             [[ "$(jq -r '.["org.opencontainers.image.version"]' <<< "$labels")" \
               == "$EXPECTED_VERSION" ]]
           done

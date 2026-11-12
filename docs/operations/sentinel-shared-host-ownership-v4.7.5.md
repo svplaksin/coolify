@@ -79,12 +79,21 @@ The build workflow must produce exactly two OCI artifacts (`image-amd64` and
 each architecture. It has no package-write permission and cannot publish.
 
 After independent review of that successful build, a separate explicit GO is
-required to dispatch the publish workflow with the reviewed build run ID. The
-publish workflow rechecks the source run, downloads exactly two OCI artifacts,
-and repeats all platform and label checks. Its tag includes the build run ID,
-the publication run ID, and run attempt. Publication fails if that exact tag
-already exists. The final manifest is accepted only when it contains
-`linux/amd64` and `linux/arm64` and both images retain the reviewed labels.
+required to dispatch the publish workflow with the reviewed build run ID and
+build run attempt. The publish workflow requires the build to come from `main`
+at the same reviewed workflow-code SHA as the publish workflow. This
+workflow-code SHA is distinct from the pinned image source SHA `bd04cd1...`,
+which is verified from the OCI revision label.
+
+The publish workflow downloads exactly two OCI artifacts and repeats all
+platform and label checks. Its tag includes the build run ID, publication run
+ID, and publication run attempt. Publication fails closed unless the registry
+explicitly reports that exact tag as missing; network, authentication, and
+unexpected registry failures block publication. The digest is read from the
+real `containerimage.descriptor.digest` metadata shape and must equal the
+registry-reported manifest digest. The final manifest is accepted only when it
+contains `linux/amd64` and `linux/arm64` and both images retain the reviewed
+labels.
 
 Image build, GHCR publication, custom-image installation, database changes,
 and production rollout remain separate approval gates.

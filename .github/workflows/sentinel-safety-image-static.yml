@@ -10,6 +10,7 @@ on:
       - .github/workflows/sentinel-safety-image-publish.yml
       - .github/workflows/sentinel-safety-image-static.yml
       - scripts/ci/validate-sentinel-safety-image-workflow.py
+      - scripts/ci/fixtures/imagetools-create-metadata.json
       - docs/operations/sentinel-shared-host-ownership-v4.7.5.md
 
 permissions:

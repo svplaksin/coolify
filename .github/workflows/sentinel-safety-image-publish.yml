@@ -7,6 +7,10 @@ on:
         description: Successful Build Sentinel safety image workflow run ID
         required: true
         type: string
+      build_run_attempt:
+        description: Exact reviewed attempt number of the build workflow run
+        required: true
+        type: string
 
 permissions: {}
 
@@ -24,24 +28,43 @@ jobs:
     timeout-minutes: 15
     env:
       BUILD_RUN_ID: ${{ inputs.build_run_id }}
+      BUILD_RUN_ATTEMPT: ${{ inputs.build_run_attempt }}
+      EXPECTED_BUILD_HEAD_BRANCH: main
+      EXPECTED_BUILD_HEAD_SHA: ${{ github.workflow_sha }}
       IMAGE: ghcr.io/${{ github.repository_owner }}/coolify-sentinel-safety
       TAG: 4.7.5-bd04cd1f34cc854ee44be3715f7c0afb3e0a8b7a-build-${{ inputs.build_run_id }}-publish-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-      EXPECTED_REVISION: bd04cd1f34cc854ee44be3715f7c0afb3e0a8b7a
+      EXPECTED_IMAGE_SOURCE_SHA: bd04cd1f34cc854ee44be3715f7c0afb3e0a8b7a
       EXPECTED_VERSION: 4.7.5
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Verify source build run
         run: |
+          [[ "$BUILD_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$BUILD_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
           run_json="$(
             gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID"
           )"
-          jq -e --arg repository "$GITHUB_REPOSITORY" '
-            .status == "completed" and
-            .conclusion == "success" and
-            .event == "workflow_dispatch" and
-            .path == ".github/workflows/sentinel-safety-image.yml" and
-            .repository.full_name == $repository
-          ' <<< "$run_json"
+          attempt_json="$(
+            gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/attempts/$BUILD_RUN_ATTEMPT"
+          )"
+          for payload in "$run_json" "$attempt_json"; do
+            jq -e \
+              --arg repository "$GITHUB_REPOSITORY" \
+              --arg run_id "$BUILD_RUN_ID" \
+              --arg attempt "$BUILD_RUN_ATTEMPT" \
+              --arg head_branch "$EXPECTED_BUILD_HEAD_BRANCH" \
+              --arg head_sha "$EXPECTED_BUILD_HEAD_SHA" '
+                (.id | tostring) == $run_id and
+                .run_attempt == ($attempt | tonumber) and
+                .status == "completed" and
+                .conclusion == "success" and
+                .event == "workflow_dispatch" and
+                .head_branch == $head_branch and
+                .head_sha == $head_sha and
+                .path == ".github/workflows/sentinel-safety-image.yml" and
+                .repository.full_name == $repository
+              ' <<< "$payload"
+          done
 
       - name: Download verified architecture artifacts
         uses: actions/download-artifact@v8.0.2
@@ -81,7 +104,7 @@ jobs:
                 --format '{{ json .Image.Config.Labels }}'
             )"
             [[ "$(jq -r '.["org.opencontainers.image.revision"]' <<< "$labels")" \
-              == "$EXPECTED_REVISION" ]]
+              == "$EXPECTED_IMAGE_SOURCE_SHA" ]]
             [[ "$(jq -r '.["org.opencontainers.image.version"]' <<< "$labels")" \
               == "$EXPECTED_VERSION" ]]
           done
@@ -95,9 +118,28 @@ jobs:
 
       - name: Refuse to overwrite an existing tag
         run: |
-          if docker buildx imagetools inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
+          probe_log="$RUNNER_TEMP/tag-probe.log"
+          set +e
+          docker buildx imagetools inspect "$IMAGE:$TAG" \
+            >"$probe_log" 2>&1
+          probe_status=$?
+          set -e
+
+          if [[ $probe_status -eq 0 ]]; then
             echo "Refusing to overwrite existing tag: $IMAGE:$TAG" >&2
             exit 1
+          fi
+
+          probe_error="$(tr '[:upper:]' '[:lower:]' < "$probe_log")"
+          if grep -Fq "$IMAGE:$TAG" "$probe_log" && \
+            grep -Eq \
+              'manifest unknown|name unknown|no such manifest|: not found' \
+              <<< "$probe_error"; then
+            echo "Confirmed unused publication tag: $IMAGE:$TAG"
+          else
+            cat "$probe_log" >&2
+            echo "Unable to prove that the tag is unused; refusing publication" >&2
+            exit "$probe_status"
           fi
 
       - name: Publish multi-architecture manifest
@@ -126,8 +168,19 @@ jobs:
             --tag "$IMAGE:$TAG" \
             "${sources[@]}"
 
-          digest="$(jq -er '.["containerimage.digest"]' \
+          digest="$(jq -er \
+            '.["containerimage.descriptor"].digest
+              | select(test("^sha256:[0-9a-f]{64}$"))' \
             "$RUNNER_TEMP/metadata.json")"
+          registry_manifest="$(
+            docker buildx imagetools inspect "$IMAGE:$TAG" \
+              --format '{{json .Manifest}}'
+          )"
+          registry_digest="$(jq -er '.digest' <<< "$registry_manifest")"
+          if [[ "$registry_digest" != "$digest" ]]; then
+            echo "Registry digest does not match create metadata" >&2
+            exit 1
+          fi
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           echo "Published $IMAGE@$digest"
 
