@@ -154,7 +154,7 @@ def main() -> None:
     require(publish, '--output index')
     require(publish, 'attestation-manifest')
     require(publish, 'length == 4')
-    require(publish, '"linux/amd64"')
+    require(publish, '["amd64", "arm64"]')
     forbid(publish, 'jq --arg arch "$arch"')
     require(publish, 'EXPECTED_VERSION: 4.7.5')
     require(publish, f"EXPECTED_IMAGE_SOURCE_SHA: {SOURCE_REVISION}")

@@ -181,23 +181,21 @@ jobs:
         run: |
           raw="$(docker buildx imagetools inspect "$IMAGE@$DIGEST" --raw)"
           jq -e '
-            ([.manifests[] | select(.platform.os == "linux")] |
-              length == 2 and
-              ([.[].platform.architecture] | sort == ["amd64", "arm64"]))
+            ([.manifests[] | select(.platform.os == "linux") |
+              .platform.architecture] | sort) == ["amd64", "arm64"]
             and
-            ([.manifests[] |
-              select(.platform.os == "unknown" and
-                     .platform.architecture == "unknown" and
-                     .annotations["vnd.docker.reference.type"] == "attestation-manifest")
-            ] | length == 2)
+            ([.manifests[] | select(.platform.os == "unknown" and
+              .platform.architecture == "unknown" and
+              .annotations["vnd.docker.reference.type"] == "attestation-manifest")
+            ] | length) == 2
             and
-            ([.manifests[] |
-              select(.platform.os == "unknown" and
-                     .platform.architecture == "unknown") |
-              .annotations["vnd.docker.reference.digest"]
-            ] | sort ==
-              ([.manifests[] | select(.platform.os == "linux") | .digest] | sort))
-            and ([.manifests] | length == 4)
+            ([.manifests[] | select(.platform.os == "unknown" and
+              .platform.architecture == "unknown") |
+              .annotations["vnd.docker.reference.digest"]] | sort)
+              == ([.manifests[] | select(.platform.os == "linux") |
+                   .digest] | sort)
+            and
+            (.manifests | length) == 4
           ' <<< "$raw"
 
           for platform in linux/amd64 linux/arm64; do
