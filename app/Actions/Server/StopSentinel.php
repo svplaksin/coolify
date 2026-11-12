@@ -46,4 +46,3 @@ class StopSentinel
         $server->sentinelHeartbeat(isReset: true);
     }
 }
-

@@ -165,4 +165,3 @@ it('restarts Sentinel once when the Sentinel page changes debug logging', functi
 
     expect(queuedSentinelStarts())->toBe(1);
 });
-

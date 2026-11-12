@@ -161,9 +161,9 @@ class ServerManagerJob implements ShouldBeEncrypted, ShouldQueue
                     return;
                 }
 
-                // A healthy owner also proves connectivity for an explicitly linked alias.
-                // Stale reachability flags still need SSH recovery.
-                if ($server->hasHealthySentinelOwner()) {
+                // A healthy owner proves the shared Docker host is available, but aliases with
+                // their own resources still need an independent SSH connection check.
+                if ($server->hasHealthySentinelOwner() && ! $server->needsIndependentContainerChecks()) {
                     return;
                 }
 

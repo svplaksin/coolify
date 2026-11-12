@@ -216,4 +216,3 @@ class StartSentinel
         SentinelRestarted::dispatch($server, $version);
     }
 }
-

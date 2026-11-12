@@ -128,4 +128,3 @@ class CheckAndStartSentinelJob implements ShouldBeEncrypted, ShouldBeUnique, Sho
         StartSentinel::run(server: $this->server, restart: true, latestVersion: $latestVersion);
     }
 }
-

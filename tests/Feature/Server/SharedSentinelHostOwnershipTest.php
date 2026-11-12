@@ -35,10 +35,12 @@ beforeEach(function () {
 
     $team = Team::factory()->create();
     $this->owner = Server::factory()->create([
+        'id' => 0,
         'team_id' => $team->id,
         'sentinel_updated_at' => now(),
     ]);
     $this->alias = Server::factory()->create([
+        'id' => 1,
         'team_id' => $team->id,
         'sentinel_updated_at' => now()->subMinutes(20),
     ]);
@@ -80,13 +82,22 @@ it('does not infer shared ownership from matching physical endpoint names', func
         ->and($this->alias->refresh()->canManageSentinel())->toBeTrue();
 });
 
-it('resolves an explicitly linked physical host to a single Sentinel owner', function () {
+it('links Doctor VPS id 1 to localhost id 0 without changing the localhost record', function () {
+    $localhostUpdatedAt = $this->owner->updated_at;
+    $localhostSettingsUpdatedAt = $this->owner->settings->updated_at;
+
     $alias = linkSharedSentinelHost($this->alias, $this->owner);
 
-    expect($alias->sentinelOwner()->is($this->owner))->toBeTrue()
+    expect($this->owner->id)->toBe(0)
+        ->and($alias->id)->toBe(1)
+        ->and($alias->sentinel_owner_server_id)->toBe(0)
+        ->and($alias->sentinelOwner()->is($this->owner))->toBeTrue()
         ->and($alias->canManageSentinel())->toBeFalse()
         ->and($this->owner->canManageSentinel())->toBeTrue()
-        ->and(StartSentinel::lockKey($alias))->toBe(StartSentinel::lockKey($this->owner));
+        ->and(StartSentinel::lockKey($alias))->toBe(StartSentinel::lockKey($this->owner))
+        ->and($this->owner->fresh()->sentinel_owner_server_id)->toBeNull()
+        ->and($this->owner->fresh()->updated_at)->toEqual($localhostUpdatedAt)
+        ->and($this->owner->settings->fresh()->updated_at)->toEqual($localhostSettingsUpdatedAt);
 });
 
 it('does not run Docker commands when an alias directly requests a Sentinel restart', function () {
@@ -260,7 +271,7 @@ it('skips redundant connection and container checks on an alias while its owner 
     Queue::assertNotPushed(CheckAndStartSentinelJob::class, fn ($job) => $job->server->id === $alias->id);
 });
 
-it('keeps independent container checks when an alias owns application resources', function () {
+it('keeps independent SSH and container checks when an alias owns application resources', function () {
     $alias = linkSharedSentinelHost($this->alias, $this->owner);
     $project = Project::factory()->create(['team_id' => $alias->team_id]);
     $environment = Environment::factory()->create(['project_id' => $project->id]);
@@ -278,7 +289,7 @@ it('keeps independent container checks when an alias owns application resources'
 
     (new ServerManagerJob)->handle();
 
-    Queue::assertNotPushed(ServerConnectionCheckJob::class, fn ($job) => $job->server->id === $alias->id);
+    Queue::assertPushed(ServerConnectionCheckJob::class, fn ($job) => $job->server->id === $alias->id);
     Queue::assertPushed(ServerCheckJob::class, fn ($job) => $job->server->id === $alias->id);
 });
 
@@ -336,4 +347,3 @@ it('fails closed for owner cycles without attempting to start or stop either con
 
     Process::assertNothingRan();
 });
-
